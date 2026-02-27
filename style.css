@@ -21,6 +21,7 @@ body {
 h1 {
     margin-bottom: 10px;
     font-size: 2em;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
 }
 
 .video-container {
@@ -28,9 +29,10 @@ h1 {
     width: 100%;
     max-width: 640px;
     margin: 20px auto;
-    border-radius: 10px;
+    border-radius: 15px;
     overflow: hidden;
     box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    border: 3px solid white;
 }
 
 #video, #output {
@@ -51,9 +53,16 @@ h1 {
 .result-box {
     background: rgba(255,255,255,0.2);
     backdrop-filter: blur(10px);
-    border-radius: 10px;
+    border-radius: 15px;
     padding: 20px;
     margin: 20px 0;
+    border: 1px solid rgba(255,255,255,0.3);
+}
+
+.result-box h2 {
+    font-size: 1.5em;
+    margin-bottom: 15px;
+    color: #f0f0f0;
 }
 
 #prediction-text {
@@ -64,39 +73,59 @@ h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-}
-
-.speak-btn {
-    background: #4CAF50;
-    color: white;
-    border: none;
-    padding: 15px 30px;
-    font-size: 1.2em;
-    border-radius: 50px;
-    cursor: pointer;
-    transition: transform 0.3s, background 0.3s;
-}
-
-.speak-btn:hover {
-    background: #45a049;
-    transform: scale(1.05);
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+    padding: 15px;
+    color: #fff;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
 }
 
 .info {
     background: rgba(0,0,0,0.2);
-    border-radius: 10px;
-    padding: 15px;
+    backdrop-filter: blur(5px);
+    border-radius: 15px;
+    padding: 20px;
     margin-top: 20px;
+    border: 1px solid rgba(255,255,255,0.2);
 }
 
 .info h3 {
-    margin-bottom: 10px;
+    margin-bottom: 15px;
+    color: #f0f0f0;
+}
+
+.gesture-guide {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    margin: 15px 0;
+}
+
+.gesture-item {
+    background: rgba(255,255,255,0.15);
+    padding: 10px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: transform 0.3s;
+}
+
+.gesture-item:hover {
+    transform: scale(1.05);
+    background: rgba(255,255,255,0.25);
+}
+
+.gesture-emoji {
+    font-size: 1.5em;
 }
 
 .note {
     font-size: 0.9em;
-    margin-top: 10px;
+    margin-top: 15px;
     opacity: 0.8;
+    font-style: italic;
 }
 
 @media (max-width: 600px) {
@@ -106,5 +135,9 @@ h1 {
     
     #prediction-text {
         font-size: 1.5em;
+    }
+    
+    .gesture-guide {
+        grid-template-columns: 1fr;
     }
 }
