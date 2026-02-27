@@ -3,83 +3,153 @@ let video = document.getElementById('video');
 let canvas = document.getElementById('output');
 let ctx = canvas.getContext('2d');
 let predictionText = document.getElementById('prediction-text');
-let speakBtn = document.getElementById('speak-btn');
 
 let model = null;
 let lastPrediction = "Tidak ada tangan terdeteksi";
 let predictionCount = {};
+let lastUpdateTime = 0;
+const UPDATE_INTERVAL = 100; // Update setiap 100ms
 
 // Setup kamera
 async function setupCamera() {
     video = document.getElementById('video');
     
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-    });
-    
-    video.srcObject = stream;
-    
-    return new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-            resolve(video);
-        };
-    });
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                width: 640,
+                height: 480,
+                facingMode: 'user'
+            },
+            audio: false
+        });
+        
+        video.srcObject = stream;
+        
+        return new Promise((resolve) => {
+            video.onloadedmetadata = () => {
+                resolve(video);
+            };
+        });
+    } catch (error) {
+        console.error("Error accessing camera:", error);
+        alert("Gagal mengakses kamera. Pastikan kamera terhubung dan izinkan akses kamera.");
+    }
 }
 
 // Load handpose model
 async function loadModel() {
-    model = await handpose.load();
-    console.log("Model loaded!");
-    return model;
+    try {
+        model = await handpose.load();
+        console.log("Model loaded successfully!");
+        return model;
+    } catch (error) {
+        console.error("Error loading model:", error);
+        alert("Gagal memuat model. Refresh halaman dan coba lagi.");
+    }
 }
 
-// Deteksi posisi tangan
-function detectHand(hand) {
-    const landmarks = hand.landmarks;
-    
+// Deteksi posisi tangan dan gesture
+function detectGesture(landmarks) {
     // Ambil titik-titik penting
-    const thumb = landmarks[4];        // Ibu jari
-    const index = landmarks[8];        // Telunjuk
-    const middle = landmarks[12];       // Jari tengah
-    const ring = landmarks[16];         // Jari manis
-    const pinky = landmarks[20];        // Kelingking
+    const thumb = landmarks[4];        // Ujung ibu jari
+    const index = landmarks[8];        // Ujung telunjuk
+    const middle = landmarks[12];      // Ujung jari tengah
+    const ring = landmarks[16];        // Ujung jari manis
+    const pinky = landmarks[20];       // Ujung kelingking
     
-    // Deteksi gesture sederhana
-    // Cek thumbs up
-    if (thumb[1] < index[1] && thumb[1] < middle[1] && 
-        thumb[1] < ring[1] && thumb[1] < pinky[1]) {
-        return "Thumbs Up = 👍 (Baik)";
+    // Titik pangkal jari
+    const thumbBase = landmarks[2];    // Pangkal ibu jari
+    const indexBase = landmarks[5];    // Pangkal telunjuk
+    const middleBase = landmarks[9];   // Pangkal jari tengah
+    const ringBase = landmarks[13];    // Pangkal jari manis
+    const pinkyBase = landmarks[17];   // Pangkal kelingking
+    
+    // Fungsi untuk cek apakah jari lurus (ujung lebih tinggi dari pangkal)
+    function isFingerStraight(fingerTip, fingerBase) {
+        return fingerTip[1] < fingerBase[1] - 20; // Kurangi 20 untuk toleransi
     }
     
-    // Cek peace sign (jari telunjuk dan tengah lurus)
-    if (index[1] < thumb[1] && middle[1] < thumb[1] &&
-        ring[1] > index[1] && pinky[1] > index[1]) {
-        return "Peace = ✌️ (Damai)";
+    // Deteksi gesture
+    
+    // 1. Thumbs Up (ibu jari lurus ke atas, jari lain mengepal)
+    if (isFingerStraight(thumb, thumbBase) && 
+        !isFingerStraight(index, indexBase) &&
+        !isFingerStraight(middle, middleBase) &&
+        !isFingerStraight(ring, ringBase) &&
+        !isFingerStraight(pinky, pinkyBase)) {
+        return {
+            emoji: "👍",
+            text: "Thumbs Up",
+            meaning: "Baik"
+        };
     }
     
-    // Cek pointing (hanya telunjuk lurus)
-    if (index[1] < thumb[1] && middle[1] > index[1] && 
-        ring[1] > index[1] && pinky[1] > index[1]) {
-        return "Pointing = ☝️ (Satu)";
+    // 2. Peace Sign (telunjuk dan tengah lurus, lainnya mengepal)
+    if (isFingerStraight(index, indexBase) && 
+        isFingerStraight(middle, middleBase) &&
+        !isFingerStraight(ring, ringBase) &&
+        !isFingerStraight(pinky, pinkyBase)) {
+        return {
+            emoji: "✌️",
+            text: "Peace",
+            meaning: "Damai"
+        };
     }
     
-    // Cek open palm (semua jari lurus)
-    if (index[1] < thumb[1] && middle[1] < thumb[1] && 
-        ring[1] < thumb[1] && pinky[1] < thumb[1]) {
-        return "Open Palm = ✋ (Halo)";
+    // 3. Pointing (hanya telunjuk lurus)
+    if (isFingerStraight(index, indexBase) && 
+        !isFingerStraight(middle, middleBase) &&
+        !isFingerStraight(ring, ringBase) &&
+        !isFingerStraight(pinky, pinkyBase)) {
+        return {
+            emoji: "☝️",
+            text: "Pointing",
+            meaning: "Satu"
+        };
     }
     
-    return "Gesture lain terdeteksi";
+    // 4. Open Palm (semua jari lurus)
+    if (isFingerStraight(index, indexBase) && 
+        isFingerStraight(middle, middleBase) &&
+        isFingerStraight(ring, ringBase) &&
+        isFingerStraight(pinky, pinkyBase)) {
+        return {
+            emoji: "✋",
+            text: "Open Palm",
+            meaning: "Halo"
+        };
+    }
+    
+    // 5. OK Sign (ibu jari dan telunjuk membentuk lingkaran)
+    const thumbIndexDistance = Math.sqrt(
+        Math.pow(thumb[0] - index[0], 2) + 
+        Math.pow(thumb[1] - index[1], 2)
+    );
+    
+    if (thumbIndexDistance < 30 && 
+        !isFingerStraight(middle, middleBase) &&
+        !isFingerStraight(ring, ringBase) &&
+        !isFingerStraight(pinky, pinkyBase)) {
+        return {
+            emoji: "👌",
+            text: "OK",
+            meaning: "Baik/Oke"
+        };
+    }
+    
+    return null;
 }
 
-// Stabilkan prediksi (ambil mayoritas dari 5 frame terakhir)
+// Stabilkan prediksi (ambil mayoritas dari beberapa frame)
 function stabilizePrediction(prediction) {
-    const key = prediction;
+    if (!prediction) return null;
+    
+    const key = prediction.text;
     predictionCount[key] = (predictionCount[key] || 0) + 1;
     
-    // Reset setiap 10 frame
-    if (Object.keys(predictionCount).length > 10) {
+    // Reset setiap 15 frame
+    if (Object.keys(predictionCount).length > 15) {
         predictionCount = {};
     }
     
@@ -97,23 +167,56 @@ function stabilizePrediction(prediction) {
     return stablePrediction;
 }
 
-// Fungsi untuk mengeluarkan suara
-function speak(text) {
-    // Bersihkan text dari emoji untuk speech
-    let cleanText = text.replace(/[✋✌️👍☝️]/g, '').trim();
+// Gambar landmark tangan
+function drawHand(landmarks) {
+    // Gambar titik-titik landmark
+    ctx.fillStyle = '#ff4444';
+    ctx.shadowColor = 'white';
+    ctx.shadowBlur = 5;
     
-    if ('speechSynthesis' in window) {
-        // Hentikan ucapan yang sedang berlangsung
-        window.speechSynthesis.cancel();
+    for (let i = 0; i < landmarks.length; i++) {
+        const [x, y] = landmarks[i];
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, 2 * Math.PI);
+        ctx.fill();
         
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.lang = 'id-ID';
-        utterance.rate = 0.9;
-        utterance.pitch = 1;
-        window.speechSynthesis.speak(utterance);
-    } else {
-        alert('Browser tidak mendukung text-to-speech!');
+        // Tambahkan nomor untuk debugging (opsional)
+        if (i % 4 === 0) {
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.fillText(i, x - 10, y - 10);
+            ctx.fillStyle = '#ff4444';
+        }
     }
+    
+    // Gambar garis penghubung untuk jari
+    ctx.strokeStyle = '#44ff44';
+    ctx.lineWidth = 3;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#44ff44';
+    
+    // Hubungkan titik-titik untuk setiap jari
+    const fingerIndices = [
+        [0, 1, 2, 3, 4],     // Ibu jari
+        [5, 6, 7, 8],        // Telunjuk
+        [9, 10, 11, 12],     // Jari tengah
+        [13, 14, 15, 16],    // Jari manis
+        [17, 18, 19, 20]     // Kelingking
+    ];
+    
+    fingerIndices.forEach(finger => {
+        for (let i = 0; i < finger.length - 1; i++) {
+            const [x1, y1] = landmarks[finger[i]];
+            const [x2, y2] = landmarks[finger[i + 1]];
+            
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+        }
+    });
+    
+    ctx.shadowBlur = 0;
 }
 
 // Main detection loop
@@ -126,48 +229,35 @@ async function detectHands() {
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
+    // Draw video frame
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
     if (predictions.length > 0) {
-        // Draw hand
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
         predictions.forEach(prediction => {
             const landmarks = prediction.landmarks;
             
-            // Draw landmarks
-            ctx.fillStyle = 'red';
-            for (let i = 0; i < landmarks.length; i++) {
-                const [x, y] = landmarks[i];
-                ctx.beginPath();
-                ctx.arc(x, y, 5, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-            
-            // Draw connections between landmarks
-            ctx.strokeStyle = 'blue';
-            ctx.lineWidth = 2;
-            
-            // Connect adjacent landmarks
-            for (let i = 0; i < landmarks.length - 1; i++) {
-                if (i % 4 !== 0) { // Connect fingers
-                    const [x1, y1] = landmarks[i];
-                    const [x2, y2] = landmarks[i + 1];
-                    ctx.beginPath();
-                    ctx.moveTo(x1, y1);
-                    ctx.lineTo(x2, y2);
-                    ctx.stroke();
-                }
-            }
+            // Draw hand landmarks
+            drawHand(landmarks);
             
             // Detect gesture
-            const gesture = detectHand(prediction);
-            const stableGesture = stabilizePrediction(gesture);
-            lastPrediction = stableGesture;
-            predictionText.textContent = stableGesture;
+            const gesture = detectGesture(landmarks);
+            
+            if (gesture) {
+                const stablePrediction = stabilizePrediction(gesture);
+                
+                if (stablePrediction) {
+                    // Cari gesture yang sesuai
+                    if (stablePrediction === gesture.text) {
+                        predictionText.innerHTML = `${gesture.emoji} ${gesture.text}<br><small>${gesture.meaning}</small>`;
+                    }
+                }
+            } else {
+                predictionText.innerHTML = "🫱 Gesture tidak dikenal<br><small>Coba gesture yang tersedia</small>";
+            }
         });
     } else {
         // No hands detected
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        predictionText.textContent = "Tidak ada tangan terdeteksi";
+        predictionText.innerHTML = "👋 Tidak ada tangan terdeteksi<br><small>Arahkan tangan ke kamera</small>";
     }
     
     requestAnimationFrame(detectHands);
@@ -179,7 +269,7 @@ async function init() {
         await setupCamera();
         video.play();
         
-        // Set canvas size
+        // Set canvas size sesuai video
         video.addEventListener('loadeddata', () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -190,14 +280,9 @@ async function init() {
         
     } catch (error) {
         console.error("Error:", error);
-        alert("Gagal mengakses kamera atau memuat model. Pastikan kamera terhubung dan izinkan akses kamera.");
+        predictionText.innerHTML = "❌ Error: Gagal memulai aplikasi";
     }
 }
 
-// Event listeners
-speakBtn.addEventListener('click', () => {
-    speak(lastPrediction);
-});
-
-// Start app
-init();
+// Start app when page loads
+window.addEventListener('load', init);
