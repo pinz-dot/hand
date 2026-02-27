@@ -14,7 +14,7 @@
 <body>
     <div class="container">
         <h1>🤟 Hand Sign Language Recognition</h1>
-        <p>Tugas Sekolah - Deteksi Bahasa Isyarat dengan Suara</p>
+        <p>Tugas Sekolah - Deteksi Bahasa Isyarat</p>
         
         <div class="video-container">
             <video id="video" autoplay playsinline></video>
@@ -24,12 +24,28 @@
         <div class="result-box">
             <h2>Terdeteksi:</h2>
             <div id="prediction-text">Menunggu deteksi...</div>
-            <button id="speak-btn" class="speak-btn">🔊 Ucapkan</button>
         </div>
         
         <div class="info">
             <h3>Isyarat yang dikenali:</h3>
-            <p>✋ Open Palm = Halo | 🤞 Peace = Damai | 👍 Thumbs Up = Baik | 👆 Pointing = Satu</p>
+            <div class="gesture-guide">
+                <div class="gesture-item">
+                    <span class="gesture-emoji">✋</span>
+                    <span>Open Palm = Halo</span>
+                </div>
+                <div class="gesture-item">
+                    <span class="gesture-emoji">✌️</span>
+                    <span>Peace = Damai</span>
+                </div>
+                <div class="gesture-item">
+                    <span class="gesture-emoji">👍</span>
+                    <span>Thumbs Up = Baik</span>
+                </div>
+                <div class="gesture-item">
+                    <span class="gesture-emoji">☝️</span>
+                    <span>Pointing = Satu</span>
+                </div>
+            </div>
             <p class="note">*Arahkan tangan ke kamera dengan jelas</p>
         </div>
     </div>
