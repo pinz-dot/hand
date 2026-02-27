@@ -2,8 +2,8 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hand Sign Language Recognition</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hand Sign Language - Tugas Sekolah</title>
     <link rel="stylesheet" href="style.css">
     <!-- Load TensorFlow.js dan Handpose library -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -12,44 +12,166 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>🤟 Hand Sign Language Recognition</h1>
-        <p>Tugas Sekolah - Deteksi Bahasa Isyarat</p>
-        
-        <div class="video-container">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="output"></canvas>
-        </div>
-        
-        <div class="result-box">
-            <h2>Terdeteksi:</h2>
-            <div id="prediction-text">Menunggu deteksi...</div>
-        </div>
-        
-        <div class="info">
-            <h3>Isyarat yang dikenali:</h3>
-            <div class="gesture-guide">
-                <div class="gesture-item">
-                    <span class="gesture-emoji">✋</span>
-                    <span>Open Palm = Halo</span>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🤟 Hand Sign <span class="highlight">Language</span></h1>
+            <p class="subtitle">Deteksi Bahasa Isyarat Real-time</p>
+        </header>
+
+        <!-- Main Camera Section -->
+        <main class="main-content">
+            <div class="camera-card">
+                <div class="video-wrapper">
+                    <video id="video" autoplay playsinline></video>
+                    <canvas id="output"></canvas>
+                    
+                    <!-- Camera Overlay -->
+                    <div class="camera-overlay">
+                        <div class="scan-line"></div>
+                        <div class="corner top-left"></div>
+                        <div class="corner top-right"></div>
+                        <div class="corner bottom-left"></div>
+                        <div class="corner bottom-right"></div>
+                    </div>
+                    
+                    <!-- Loading Indicator -->
+                    <div class="loading-indicator" id="loading">
+                        <div class="spinner"></div>
+                        <span>Memuat model...</span>
+                    </div>
                 </div>
-                <div class="gesture-item">
-                    <span class="gesture-emoji">✌️</span>
-                    <span>Peace = Damai</span>
+
+                <!-- Detection Result -->
+                <div class="result-card" id="resultCard">
+                    <div class="result-header">
+                        <span class="result-label">TERDETEKSI</span>
+                        <span class="confidence-badge" id="confidence">100%</span>
+                    </div>
+                    <div class="result-content" id="prediction-text">
+                        <span class="result-emoji">👋</span>
+                        <span class="result-message">Arahkan tangan ke kamera</span>
+                    </div>
                 </div>
-                <div class="gesture-item">
-                    <span class="gesture-emoji">👍</span>
-                    <span>Thumbs Up = Baik</span>
-                </div>
-                <div class="gesture-item">
-                    <span class="gesture-emoji">☝️</span>
-                    <span>Pointing = Satu</span>
+
+                <!-- Quick Actions -->
+                <div class="action-buttons">
+                    <button class="action-btn primary" id="screenshotBtn" onclick="takeScreenshot()">
+                        <span class="btn-icon">📸</span>
+                        <span class="btn-text">Screenshot</span>
+                    </button>
+                    <button class="action-btn secondary" id="resetBtn" onclick="resetDetection()">
+                        <span class="btn-icon">🔄</span>
+                        <span class="btn-text">Reset</span>
+                    </button>
                 </div>
             </div>
-            <p class="note">*Arahkan tangan ke kamera dengan jelas</p>
+
+            <!-- Gesture Guide -->
+            <div class="guide-section">
+                <h2 class="section-title">
+                    <span>📋 Panduan Gesture</span>
+                    <span class="gesture-count">5 Isyarat</span>
+                </h2>
+                
+                <div class="gesture-grid">
+                    <!-- Open Palm -->
+                    <div class="gesture-item" onclick="showGestureDetail('openpalm')">
+                        <div class="gesture-icon">✋</div>
+                        <div class="gesture-info">
+                            <h3>Open Palm</h3>
+                            <p>Halo / Hai</p>
+                        </div>
+                        <div class="gesture-status" id="status-openpalm">⚪</div>
+                    </div>
+
+                    <!-- Peace -->
+                    <div class="gesture-item" onclick="showGestureDetail('peace')">
+                        <div class="gesture-icon">✌️</div>
+                        <div class="gesture-info">
+                            <h3>Peace</h3>
+                            <p>Damai / Victory</p>
+                        </div>
+                        <div class="gesture-status" id="status-peace">⚪</div>
+                    </div>
+
+                    <!-- Thumbs Up -->
+                    <div class="gesture-item" onclick="showGestureDetail('thumbsup')">
+                        <div class="gesture-icon">👍</div>
+                        <div class="gesture-info">
+                            <h3>Thumbs Up</h3>
+                            <p>Baik / Sip</p>
+                        </div>
+                        <div class="gesture-status" id="status-thumbsup">⚪</div>
+                    </div>
+
+                    <!-- Pointing -->
+                    <div class="gesture-item" onclick="showGestureDetail('pointing')">
+                        <div class="gesture-icon">☝️</div>
+                        <div class="gesture-info">
+                            <h3>Pointing</h3>
+                            <p>Satu / Tunjuk</p>
+                        </div>
+                        <div class="gesture-status" id="status-pointing">⚪</div>
+                    </div>
+
+                    <!-- OK Sign -->
+                    <div class="gesture-item" onclick="showGestureDetail('ok')">
+                        <div class="gesture-icon">👌</div>
+                        <div class="gesture-info">
+                            <h3>OK Sign</h3>
+                            <p>Oke / Setuju</p>
+                        </div>
+                        <div class="gesture-status" id="status-ok">⚪</div>
+                    </div>
+
+                    <!-- Rock On -->
+                    <div class="gesture-item" onclick="showGestureDetail('rock')">
+                        <div class="gesture-icon">🤘</div>
+                        <div class="gesture-info">
+                            <h3>Rock On</h3>
+                            <p>Keren / Rock</p>
+                        </div>
+                        <div class="gesture-status" id="status-rock">⚪</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <div class="nav-item active" onclick="switchTab('camera')">
+                <span class="nav-icon">📷</span>
+                <span class="nav-label">Kamera</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('stats')">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Statistik</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('history')">
+                <span class="nav-icon">📜</span>
+                <span class="nav-label">History</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('info')">
+                <span class="nav-icon">ℹ️</span>
+                <span class="nav-label">Info</span>
+            </div>
+        </nav>
+
+        <!-- Modal for Gesture Detail -->
+        <div class="modal" id="gestureModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modalTitle">Detail Gesture</h3>
+                    <button class="close-btn" onclick="closeModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="modalBody">
+                    <!-- Content will be filled by JavaScript -->
+                </div>
+            </div>
         </div>
     </div>
-    
+
     <script src="script.js"></script>
 </body>
 </html>
