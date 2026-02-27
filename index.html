@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Sign Language Recognition</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Load TensorFlow.js dan Handpose library -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>🤟 Hand Sign Language Recognition</h1>
+        <p>Tugas Sekolah - Deteksi Bahasa Isyarat dengan Suara</p>
+        
+        <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="output"></canvas>
+        </div>
+        
+        <div class="result-box">
+            <h2>Terdeteksi:</h2>
+            <div id="prediction-text">Menunggu deteksi...</div>
+            <button id="speak-btn" class="speak-btn">🔊 Ucapkan</button>
+        </div>
+        
+        <div class="info">
+            <h3>Isyarat yang dikenali:</h3>
+            <p>✋ Open Palm = Halo | 🤞 Peace = Damai | 👍 Thumbs Up = Baik | 👆 Pointing = Satu</p>
+            <p class="note">*Arahkan tangan ke kamera dengan jelas</p>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
