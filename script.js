@@ -508,3 +508,363 @@ window.addEventListener('orientationchange', () => {
         canvas.height = video.videoHeight;
     }, 100);
 });
+
+// SWITCH TAB FUNCTION 
+function switchTab(tabName) {
+    // Update active state di bottom navigation
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    
+    // Cari nav item yang diklik dan beri class active
+    const activeNav = Array.from(document.querySelectorAll('.nav-item')).find(
+        item => item.querySelector('.nav-label').textContent.toLowerCase() === tabName
+    );
+    if (activeNav) {
+        activeNav.classList.add('active');
+    }
+    
+    // Sembunyikan semua konten
+    document.querySelector('.camera-card').style.display = 'none';
+    document.querySelector('.guide-section').style.display = 'none';
+    
+    // Hapus semua container tab yang mungkin sudah ada
+    const existingContainers = document.querySelectorAll('.stats-container, .history-container, .info-container');
+    existingContainers.forEach(container => container.remove());
+    
+    // Tampilkan konten sesuai tab yang dipilih
+    switch(tabName) {
+        case 'camera':
+            showCameraTab();
+            break;
+        case 'stats':
+            showStatsTab();
+            break;
+        case 'history':
+            showHistoryTab();
+            break;
+        case 'info':
+            showInfoTab();
+            break;
+    }
+}
+
+// FUNGSI UNTUK SETIAP TAB
+
+// 1. Tab Camera
+function showCameraTab() {
+    document.querySelector('.camera-card').style.display = 'block';
+    document.querySelector('.guide-section').style.display = 'block';
+    
+    // Hapus container lain jika ada
+    removeOtherContainers();
+}
+
+// 2. Tab Statistik
+function showStatsTab() {
+    // Sembunyikan camera dan guide
+    document.querySelector('.camera-card').style.display = 'none';
+    document.querySelector('.guide-section').style.display = 'none';
+    
+    // Buat container stats
+    const mainContent = document.querySelector('.main-content');
+    const statsContainer = document.createElement('div');
+    statsContainer.className = 'stats-container';
+    statsContainer.style.cssText = `
+        display: block;
+        padding: 20px;
+        background: var(--card-bg);
+        border-radius: 24px;
+        border: 1px solid var(--border-color);
+    `;
+    
+    // Hitung statistik
+    const totalTime = Math.floor((Date.now() - stats.startTime) / 1000);
+    const minutes = Math.floor(totalTime / 60);
+    const seconds = totalTime % 60;
+    
+    // Cari gesture terbanyak
+    let mostFrequentGesture = 'Belum ada';
+    let mostFrequentCount = 0;
+    for (let [gesture, count] of Object.entries(stats.gesturesDetected)) {
+        if (count > mostFrequentCount) {
+            mostFrequentCount = count;
+            mostFrequentGesture = gesture;
+        }
+    }
+    
+    // Hitung akurasi rata-rata (simulasi)
+    const avgConfidence = stats.totalDetections > 0 ? 85 : 0;
+    
+    statsContainer.innerHTML = `
+        <h2 style="margin-bottom: 20px; font-size: 1.5rem;">📊 Statistik Penggunaan</h2>
+        
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px;">
+            <div class="stat-card">
+                <div style="font-size: 2rem; color: var(--primary-color);">${stats.totalDetections}</div>
+                <div style="color: var(--text-secondary);">Total Deteksi</div>
+            </div>
+            <div class="stat-card">
+                <div style="font-size: 2rem; color: var(--success-color);">${Object.keys(stats.gesturesDetected).length}</div>
+                <div style="color: var(--text-secondary);">Gesture Dikenali</div>
+            </div>
+            <div class="stat-card">
+                <div style="font-size: 2rem; color: var(--warning-color);">${minutes}m ${seconds}s</div>
+                <div style="color: var(--text-secondary);">Waktu Penggunaan</div>
+            </div>
+            <div class="stat-card">
+                <div style="font-size: 2rem; color: var(--danger-color);">${avgConfidence}%</div>
+                <div style="color: var(--text-secondary);">Rata-rata Akurasi</div>
+            </div>
+        </div>
+        
+        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 15px;">
+            <h3 style="margin-bottom: 15px;">📈 Detail per Gesture</h3>
+            ${Object.entries(stats.gesturesDetected).map(([gesture, count]) => `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color);">
+                    <span>${gesture}</span>
+                    <span style="color: var(--primary-color); font-weight: bold;">${count}x</span>
+                </div>
+            `).join('')}
+            ${Object.keys(stats.gesturesDetected).length === 0 ? 
+                '<p style="color: var(--text-secondary); text-align: center;">Belum ada data gesture</p>' : ''}
+        </div>
+        
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+            <button onclick="resetStats()" style="flex: 1; padding: 12px; background: var(--danger-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
+                🔄 Reset Statistik
+            </button>
+            <button onclick="switchTab('camera')" style="flex: 1; padding: 12px; background: var(--primary-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
+                📷 Kembali ke Kamera
+            </button>
+        </div>
+    `;
+    
+    mainContent.appendChild(statsContainer);
+}
+
+// 3. Tab History
+function showHistoryTab() {
+    // Sembunyikan camera dan guide
+    document.querySelector('.camera-card').style.display = 'none';
+    document.querySelector('.guide-section').style.display = 'none';
+    
+    // Buat container history
+    const mainContent = document.querySelector('.main-content');
+    const historyContainer = document.createElement('div');
+    historyContainer.className = 'history-container';
+    historyContainer.style.cssText = `
+        display: block;
+        padding: 20px;
+        background: var(--card-bg);
+        border-radius: 24px;
+        border: 1px solid var(--border-color);
+    `;
+    
+    let historyHTML = `
+        <h2 style="margin-bottom: 20px; font-size: 1.5rem;">📜 Riwayat Deteksi</h2>
+    `;
+    
+    if (detectionHistory.length === 0) {
+        historyHTML += `
+            <div style="text-align: center; padding: 40px 20px;">
+                <div style="font-size: 4rem; margin-bottom: 20px;">📭</div>
+                <h3 style="margin-bottom: 10px;">Belum Ada Riwayat</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Lakukan deteksi gesture untuk melihat riwayat</p>
+                <button onclick="switchTab('camera')" style="padding: 12px 30px; background: var(--primary-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
+                    Mulai Deteksi
+                </button>
+            </div>
+        `;
+    } else {
+        historyHTML += `
+            <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                <span>Total: ${detectionHistory.length} deteksi</span>
+                <button onclick="clearHistory()" style="padding: 8px 15px; background: var(--danger-color); border: none; border-radius: 8px; color: white; cursor: pointer;">
+                    Hapus Semua
+                </button>
+            </div>
+        `;
+        
+        detectionHistory.forEach((item, index) => {
+            historyHTML += `
+                <div style="display: flex; align-items: center; gap: 15px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px; margin-bottom: 10px; border: 1px solid var(--border-color);">
+                    <div style="font-size: 2rem;">${item.emoji}</div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold;">${item.name}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">${item.meaning}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 5px;">${item.timestamp}</div>
+                    </div>
+                    <div style="background: var(--primary-color); padding: 4px 8px; border-radius: 12px; font-size: 0.7rem;">
+                        ${item.confidence}%
+                    </div>
+                </div>
+            `;
+        });
+        
+        historyHTML += `
+            <div style="margin-top: 20px;">
+                <button onclick="switchTab('camera')" style="width: 100%; padding: 12px; background: var(--primary-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
+                    📷 Kembali ke Kamera
+                </button>
+            </div>
+        `;
+    }
+    
+    historyContainer.innerHTML = historyHTML;
+    mainContent.appendChild(historyContainer);
+}
+
+// 4. Tab Info
+function showInfoTab() {
+    // Sembunyikan camera dan guide
+    document.querySelector('.camera-card').style.display = 'none';
+    document.querySelector('.guide-section').style.display = 'none';
+    
+    // Buat container info
+    const mainContent = document.querySelector('.main-content');
+    const infoContainer = document.createElement('div');
+    infoContainer.className = 'info-container';
+    infoContainer.style.cssText = `
+        display: block;
+        padding: 20px;
+        background: var(--card-bg);
+        border-radius: 24px;
+        border: 1px solid var(--border-color);
+    `;
+    
+    infoContainer.innerHTML = `
+        <h2 style="margin-bottom: 20px; font-size: 1.5rem;">ℹ️ Informasi Aplikasi</h2>
+        
+        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+            <h3 style="margin-bottom: 10px; color: var(--primary-color);">🤟 Hand Sign Language</h3>
+            <p style="margin-bottom: 15px; line-height: 1.6;">
+                Aplikasi ini dibuat untuk tugas sekolah dalam mendeteksi bahasa isyarat 
+                menggunakan teknologi AI (TensorFlow.js) dan Handpose model.
+            </p>
+            <p style="margin-bottom: 5px;"><strong>Fitur:</strong></p>
+            <ul style="list-style: none; padding-left: 0;">
+                <li style="margin-bottom: 8px;">✅ Deteksi 6 gesture isyarat</li>
+                <li style="margin-bottom: 8px;">✅ Real-time tracking</li>
+                <li style="margin-bottom: 8px;">✅ Statistik penggunaan</li>
+                <li style="margin-bottom: 8px;">✅ Riwayat deteksi</li>
+                <li style="margin-bottom: 8px;">✅ Screenshot</li>
+                <li style="margin-bottom: 8px;">✅ Responsive design</li>
+            </ul>
+        </div>
+        
+        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+            <h3 style="margin-bottom: 10px; color: var(--success-color);">📋 Cara Penggunaan</h3>
+            <ol style="padding-left: 20px; line-height: 1.8;">
+                <li>Pastikan ruangan cukup terang</li>
+                <li>Posisikan tangan 30-50cm dari kamera</li>
+                <li>Tunjukkan gesture dengan jelas</li>
+                <li>Tunggu deteksi muncul di layar</li>
+                <li>Gunakan screenshot untuk menyimpan hasil</li>
+            </ol>
+        </div>
+        
+        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+            <h3 style="margin-bottom: 10px; color: var(--warning-color);">🎯 Gesture yang Didukung</h3>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                <div style="text-align: center;">✋ Open Palm</div>
+                <div style="text-align: center;">✌️ Peace</div>
+                <div style="text-align: center;">👍 Thumbs Up</div>
+                <div style="text-align: center;">☝️ Pointing</div>
+                <div style="text-align: center;">👌 OK Sign</div>
+                <div style="text-align: center;">🤘 Rock On</div>
+            </div>
+        </div>
+        
+        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px;">
+            <h3 style="margin-bottom: 10px; color: var(--danger-color);">⚙️ Teknologi</h3>
+            <p>TensorFlow.js | Handpose | HTML5 | CSS3 | JavaScript</p>
+            <p style="margin-top: 10px; font-size: 0.8rem; color: var(--text-secondary);">
+                Versi 1.0.0 - Tugas Sekolah
+            </p>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button onclick="switchTab('camera')" style="width: 100%; padding: 12px; background: var(--primary-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
+                📷 Kembali ke Kamera
+            </button>
+        </div>
+    `;
+    
+    mainContent.appendChild(infoContainer);
+}
+
+// Fungsi bantuan
+function removeOtherContainers() {
+    const containers = document.querySelectorAll('.stats-container, .history-container, .info-container');
+    containers.forEach(container => container.remove());
+}
+
+function resetStats() {
+    stats = {
+        totalDetections: 0,
+        gesturesDetected: {},
+        startTime: Date.now()
+    };
+    showStatsTab(); // Refresh tampilan stats
+}
+
+function clearHistory() {
+    detectionHistory = [];
+    showHistoryTab(); // Refresh tampilan history
+}
+
+// Perbaiki fungsi updateDetectionResult untuk menyimpan ke history
+function updateDetectionResult(gesture) {
+    const resultContent = document.querySelector('.result-content');
+    const statusIndicators = document.querySelectorAll('.gesture-status');
+    
+    // Reset semua status
+    statusIndicators.forEach(ind => {
+        ind.innerHTML = '⚪';
+        ind.style.color = 'var(--text-secondary)';
+    });
+    
+    if (gesture) {
+        // Update result card
+        resultContent.innerHTML = `
+            <span class="result-emoji">${gesture.emoji}</span>
+            <div class="result-message">
+                <strong>${gesture.name}</strong><br>
+                <small>${gesture.meaning}</small>
+            </div>
+        `;
+        
+        // Update confidence
+        if (confidenceBadge) {
+            confidenceBadge.textContent = `${gesture.confidence}%`;
+        }
+        
+        // Update status indicator
+        const statusId = `status-${gesture.name.toLowerCase().replace(' ', '')}`;
+        const statusEl = document.getElementById(statusId);
+        if (statusEl) {
+            statusEl.innerHTML = '🔵';
+            statusEl.style.color = 'var(--primary-color)';
+        }
+        
+        // Update stats
+        updateStats(gesture.name);
+        
+        // Add to history - HANYA JIKA GESTURE BERBEDA DARI SEBELUMNYA
+        if (!lastPrediction || lastPrediction.name !== gesture.name) {
+            addToHistory(gesture);
+        }
+        
+        lastPrediction = gesture;
+    } else {
+        resultContent.innerHTML = `
+            <span class="result-emoji">🫱</span>
+            <span class="result-message">Gesture tidak dikenal</span>
+        `;
+        if (confidenceBadge) {
+            confidenceBadge.textContent = '0%';
+        }
+        lastPrediction = null;
+    }
+}
