@@ -739,8 +739,7 @@ function showInfoTab() {
         <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
             <h3 style="margin-bottom: 10px; color: var(--primary-color);">🤟 Hand Sign Language</h3>
             <p style="margin-bottom: 15px; line-height: 1.6;">
-                Aplikasi ini dibuat untuk tugas sekolah dalam mendeteksi bahasa isyarat 
-                menggunakan teknologi AI (TensorFlow.js) dan Handpose model.
+                Aplikasi ini dibuat untuk mendeteksi bahasa isyarat.
             </p>
             <p style="margin-bottom: 5px;"><strong>Fitur:</strong></p>
             <ul style="list-style: none; padding-left: 0;">
@@ -780,7 +779,7 @@ function showInfoTab() {
             <h3 style="margin-bottom: 10px; color: var(--danger-color);">⚙️ Teknologi</h3>
             <p>TensorFlow.js | Handpose | HTML5 | CSS3 | JavaScript</p>
             <p style="margin-top: 10px; font-size: 0.8rem; color: var(--text-secondary);">
-                Versi 1.0.0 - Tugas Sekolah
+                Versi 1.0.0
             </p>
         </div>
         
@@ -868,3 +867,4 @@ function updateDetectionResult(gesture) {
         lastPrediction = null;
     }
 }
+
