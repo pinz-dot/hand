@@ -7,7 +7,6 @@ let loadingIndicator = document.getElementById('loading');
 let confidenceBadge = document.getElementById('confidence');
 let model = null;
 let lastPrediction = null;
-let predictionHistory = [];
 let stats = {
     totalDetections: 0,
     gesturesDetected: {},
@@ -15,15 +14,27 @@ let stats = {
 };
 let detectionHistory = [];
 
-// Setup kamera dengan kualitas terbaik
+// OPTIMASI 1: Batasi frame rate
+const FRAME_SKIP = 2; // Proses setiap 2 frame
+let frameCounter = 0;
+
+// OPTIMASI 2: Cache DOM elements
+const resultContent = document.querySelector('.result-content');
+const statusIndicators = document.querySelectorAll('.gesture-status');
+
+// OPTIMASI 3: Threshold untuk deteksi
+const CONFIDENCE_THRESHOLD = 70; // Minimal kepercayaan
+
+// Setup kamera dengan resolusi rendah
 async function setupCamera() {
     try {
+        // OPTIMASI 4: Gunakan resolusi lebih rendah untuk performa
         const stream = await navigator.mediaDevices.getUserMedia({
             video: {
-                width: { ideal: 640 },
-                height: { ideal: 480 },
+                width: { ideal: 320 }, // Turunkan resolusi
+                height: { ideal: 240 },
                 facingMode: 'user',
-                frameRate: { ideal: 30 }
+                frameRate: { ideal: 15 } // Turunkan frame rate
             },
             audio: false
         });
@@ -37,7 +48,7 @@ async function setupCamera() {
         });
     } catch (error) {
         console.error('Camera error:', error);
-        showError('Gagal mengakses kamera. Pastikan kamera terhubung dan izinkan akses.');
+        showError('Gagal mengakses kamera.');
     }
 }
 
@@ -45,122 +56,128 @@ async function setupCamera() {
 async function loadModel() {
     try {
         loadingIndicator.style.display = 'flex';
-        model = await handpose.load();
+        
+        // OPTIMASI 5: Gunakan backend WebGL dengan setting optimal
+        await tf.setBackend('webgl');
+        await tf.ready();
+        
+        // OPTIMASI 6: Load model dengan konfigurasi ringan
+        model = await handpose.load({
+            detectionConfidence: 0.5, // Turunkan threshold
+            maxContinuousChecks: 3,    // Kurangi pengecekan
+            iouThreshold: 0.2,          // Threshold IOU lebih rendah
+            scoreThreshold: 0.3          // Threshold score lebih rendah
+        });
+        
         console.log('Model loaded successfully');
         loadingIndicator.style.display = 'none';
         return model;
     } catch (error) {
         console.error('Model loading error:', error);
-        showError('Gagal memuat model. Refresh halaman dan coba lagi.');
+        showError('Gagal memuat model.');
     }
 }
 
-// Deteksi gesture dengan lebih akurat
+// OPTIMASI 7: Deteksi gesture yang lebih efisien
 function detectGesture(landmarks) {
-    // Ambil koordinat ujung jari
-    const thumb = landmarks[4];      // Ibu jari
-    const index = landmarks[8];       // Telunjuk
-    const middle = landmarks[12];     // Jari tengah
-    const ring = landmarks[16];       // Jari manis
-    const pinky = landmarks[20];      // Kelingking
+    // Cache array indexes untuk akses lebih cepat
+    const idx = {
+        thumb: 4, thumbBase: 2,
+        index: 8, indexBase: 5,
+        middle: 12, middleBase: 9,
+        ring: 16, ringBase: 13,
+        pinky: 20, pinkyBase: 17
+    };
     
-    // Ambil koordinat pangkal jari
-    const thumbBase = landmarks[2];
-    const indexBase = landmarks[5];
-    const middleBase = landmarks[9];
-    const ringBase = landmarks[13];
-    const pinkyBase = landmarks[17];
+    // Ambil koordinat dengan sekali akses
+    const points = {
+        thumb: landmarks[idx.thumb],
+        thumbBase: landmarks[idx.thumbBase],
+        index: landmarks[idx.index],
+        indexBase: landmarks[idx.indexBase],
+        middle: landmarks[idx.middle],
+        middleBase: landmarks[idx.middleBase],
+        ring: landmarks[idx.ring],
+        ringBase: landmarks[idx.ringBase],
+        pinky: landmarks[idx.pinky],
+        pinkyBase: landmarks[idx.pinkyBase]
+    };
     
-    // Fungsi untuk menghitung jarak antar titik
-    function getDistance(p1, p2) {
-        return Math.sqrt(Math.pow(p1[0] - p2[0], 2) + Math.pow(p1[1] - p2[1], 2));
-    }
+    // Fungsi cek jari lurus (lebih sederhana)
+    const isStraight = (tip, base) => tip[1] < base[1] - 10;
     
-    // Fungsi untuk cek apakah jari lurus
-    function isFingerStraight(tip, base) {
-        return tip[1] < base[1] - 15; // Jari lurus ke atas
-    }
+    // Hitung jarak untuk OK sign (gunakan Manhattan distance lebih cepat)
+    const thumbIndexDist = Math.abs(points.thumb[0] - points.index[0]) + 
+                          Math.abs(points.thumb[1] - points.index[1]);
     
-    // Hitung jarak untuk deteksi OK
-    const thumbIndexDistance = getDistance(thumb, index);
+    // Deteksi dengan early return (berhenti cepat jika ketemu)
     
-    // Deteksi gesture
-    
-    // 1. Open Palm (semua jari lurus)
-    if (isFingerStraight(index, indexBase) && 
-        isFingerStraight(middle, middleBase) &&
-        isFingerStraight(ring, ringBase) &&
-        isFingerStraight(pinky, pinkyBase)) {
+    // 1. Open Palm (paling umum)
+    if (isStraight(points.index, points.indexBase) && 
+        isStraight(points.middle, points.middleBase) &&
+        isStraight(points.ring, points.ringBase) &&
+        isStraight(points.pinky, points.pinkyBase)) {
         return {
             name: 'Open Palm',
             emoji: '✋',
-            meaning: 'Halo / Hai',
+            meaning: 'Halo',
             confidence: 95
         };
     }
     
-    // 2. Peace (telunjuk dan tengah lurus)
-    if (isFingerStraight(index, indexBase) && 
-        isFingerStraight(middle, middleBase) &&
-        !isFingerStraight(ring, ringBase) &&
-        !isFingerStraight(pinky, pinkyBase)) {
+    // 2. Peace
+    if (isStraight(points.index, points.indexBase) && 
+        isStraight(points.middle, points.middleBase) &&
+        !isStraight(points.ring, points.ringBase)) {
         return {
             name: 'Peace',
             emoji: '✌️',
-            meaning: 'Damai / Victory',
+            meaning: 'Damai',
             confidence: 90
         };
     }
     
-    // 3. Thumbs Up (ibu jari lurus)
-    if (isFingerStraight(thumb, thumbBase) && 
-        !isFingerStraight(index, indexBase) &&
-        !isFingerStraight(middle, middleBase) &&
-        !isFingerStraight(ring, ringBase) &&
-        !isFingerStraight(pinky, pinkyBase)) {
+    // 3. Thumbs Up
+    if (isStraight(points.thumb, points.thumbBase) && 
+        !isStraight(points.index, points.indexBase)) {
         return {
             name: 'Thumbs Up',
             emoji: '👍',
-            meaning: 'Baik / Sip',
+            meaning: 'Baik',
             confidence: 85
         };
     }
     
-    // 4. Pointing (telunjuk lurus)
-    if (isFingerStraight(index, indexBase) && 
-        !isFingerStraight(middle, middleBase) &&
-        !isFingerStraight(ring, ringBase) &&
-        !isFingerStraight(pinky, pinkyBase)) {
+    // 4. Pointing
+    if (isStraight(points.index, points.indexBase) && 
+        !isStraight(points.middle, points.middleBase)) {
         return {
             name: 'Pointing',
             emoji: '☝️',
-            meaning: 'Satu / Tunjuk',
+            meaning: 'Satu',
             confidence: 88
         };
     }
     
     // 5. OK Sign
-    if (thumbIndexDistance < 30 && 
-        !isFingerStraight(middle, middleBase) &&
-        !isFingerStraight(ring, ringBase) &&
-        !isFingerStraight(pinky, pinkyBase)) {
+    if (thumbIndexDist < 40 && 
+        !isStraight(points.middle, points.middleBase)) {
         return {
             name: 'OK Sign',
             emoji: '👌',
-            meaning: 'Oke / Setuju',
+            meaning: 'Oke',
             confidence: 92
         };
     }
     
-    // 6. Rock On (telunjuk dan kelingking lurus)
-    if (isFingerStraight(index, indexBase) && 
-        isFingerStraight(pinky, pinkyBase) &&
-        !isFingerStraight(middle, middleBase) &&
-        !isFingerStraight(ring, ringBase)) {
+    // 6. Rock On
+    if (isStraight(points.index, points.indexBase) && 
+        isStraight(points.pinky, points.pinkyBase) &&
+        !isStraight(points.middle, points.middleBase)) {
         return {
             name: 'Rock On',
             emoji: '🤘',
-            meaning: 'Keren / Rock',
+            meaning: 'Keren',
             confidence: 87
         };
     }
@@ -168,185 +185,133 @@ function detectGesture(landmarks) {
     return null;
 }
 
-// Gambar landmark dengan style yang lebih baik
+// OPTIMASI 8: Gambar landmark lebih ringan
 function drawHand(landmarks) {
-    // Gambar titik-titik landmark
-    landmarks.forEach((point, i) => {
-        const [x, y] = point;
-        
-        // Gradient untuk titik
-        const gradient = ctx.createRadialGradient(x, y, 0, x, y, 10);
-        gradient.addColorStop(0, '#ff4444');
-        gradient.addColorStop(1, '#ff8888');
-        
+    // Hanya gambar titik-titik penting (kurangi jumlah)
+    ctx.shadowBlur = 0; // Hilangkan shadow untuk performa
+    
+    // Gambar titik dengan ukuran lebih kecil
+    ctx.fillStyle = '#ff4444';
+    for (let i = 0; i < landmarks.length; i += 2) { // Skip setiap 2 titik
+        const [x, y] = landmarks[i];
         ctx.beginPath();
-        ctx.arc(x, y, 6, 0, 2 * Math.PI);
-        ctx.fillStyle = gradient;
-        ctx.shadowColor = '#ff4444';
-        ctx.shadowBlur = 10;
+        ctx.arc(x, y, 4, 0, 2 * Math.PI);
         ctx.fill();
-        
-        // Nomor landmark (untuk debugging, bisa dihapus)
-        if (i % 4 === 0) {
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = 'white';
-            ctx.font = '10px Arial';
-            ctx.fillText(i, x - 5, y - 10);
-        }
-    });
+    }
     
-    // Gambar garis penghubung
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = '#44ff44';
+    // Gambar garis penghubung (sederhanakan)
     ctx.strokeStyle = '#44ff44';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     
-    const fingerIndices = [
-        [0, 1, 2, 3, 4],     // Ibu jari
-        [5, 6, 7, 8],        // Telunjuk
-        [9, 10, 11, 12],     // Jari tengah
-        [13, 14, 15, 16],    // Jari manis
-        [17, 18, 19, 20]     // Kelingking
+    const connections = [
+        [0,1], [1,2], [2,3], [3,4],     // Ibu jari
+        [5,6], [6,7], [7,8],             // Telunjuk
+        [9,10], [10,11], [11,12],        // Jari tengah
+        [13,14], [14,15], [15,16],       // Jari manis
+        [17,18], [18,19], [19,20]        // Kelingking
     ];
     
-    fingerIndices.forEach(finger => {
-        for (let i = 0; i < finger.length - 1; i++) {
-            const [x1, y1] = landmarks[finger[i]];
-            const [x2, y2] = landmarks[finger[i + 1]];
-            
-            ctx.beginPath();
-            ctx.moveTo(x1, y1);
-            ctx.lineTo(x2, y2);
-            ctx.stroke();
-        }
+    ctx.beginPath();
+    connections.forEach(([i, j]) => {
+        const [x1, y1] = landmarks[i];
+        const [x2, y2] = landmarks[j];
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
     });
-    
-    ctx.shadowBlur = 0;
+    ctx.stroke();
 }
 
-// Update UI dengan hasil deteksi
+// OPTIMASI 9: Update UI yang lebih efisien
 function updateDetectionResult(gesture) {
-    const resultContent = document.querySelector('.result-content');
-    const statusIndicators = document.querySelectorAll('.gesture-status');
+    if (!gesture) {
+        if (resultContent.innerHTML.includes('🫱')) return; // Skip jika sama
+        resultContent.innerHTML = `
+            <span class="result-emoji">🫱</span>
+            <span class="result-message">Tidak dikenal</span>
+        `;
+        if (confidenceBadge) confidenceBadge.textContent = '0%';
+        lastPrediction = null;
+        return;
+    }
     
-    // Reset semua status
+    // Cek threshold confidence
+    if (gesture.confidence < CONFIDENCE_THRESHOLD) return;
+    
+    // Update hanya jika gesture berbeda
+    if (lastPrediction && lastPrediction.name === gesture.name) return;
+    
+    // Update result card
+    resultContent.innerHTML = `
+        <span class="result-emoji">${gesture.emoji}</span>
+        <div class="result-message">
+            <strong>${gesture.name}</strong><br>
+            <small>${gesture.meaning}</small>
+        </div>
+    `;
+    
+    confidenceBadge.textContent = `${gesture.confidence}%`;
+    
+    // Update status indicator
     statusIndicators.forEach(ind => {
         ind.innerHTML = '⚪';
         ind.style.color = 'var(--text-secondary)';
     });
     
-    if (gesture) {
-        // Update result card
-        resultContent.innerHTML = `
-            <span class="result-emoji">${gesture.emoji}</span>
-            <div class="result-message">
-                <strong>${gesture.name}</strong><br>
-                <small>${gesture.meaning}</small>
-            </div>
-        `;
-        
-        // Update confidence
-        confidenceBadge.textContent = `${gesture.confidence}%`;
-        
-        // Update status indicator
-        const statusId = `status-${gesture.name.toLowerCase().replace(' ', '')}`;
-        const statusEl = document.getElementById(statusId);
-        if (statusEl) {
-            statusEl.innerHTML = '🔵';
-            statusEl.style.color = 'var(--primary-color)';
-        }
-        
-        // Update stats
-        updateStats(gesture.name);
-        
-        // Add to history
-        addToHistory(gesture);
-        
-        lastPrediction = gesture;
-    } else {
-        resultContent.innerHTML = `
-            <span class="result-emoji">🫱</span>
-            <span class="result-message">Gesture tidak dikenal</span>
-        `;
-        confidenceBadge.textContent = '0%';
+    const statusId = `status-${gesture.name.toLowerCase().replace(' ', '')}`;
+    const statusEl = document.getElementById(statusId);
+    if (statusEl) {
+        statusEl.innerHTML = '🔵';
+        statusEl.style.color = 'var(--primary-color)';
     }
-}
-
-// Update statistik
-function updateStats(gestureName) {
+    
+    // Update stats
     stats.totalDetections++;
-    stats.gesturesDetected[gestureName] = (stats.gesturesDetected[gestureName] || 0) + 1;
+    stats.gesturesDetected[gesture.name] = (stats.gesturesDetected[gesture.name] || 0) + 1;
     
-    // Update stats display jika tab stats aktif
-    updateStatsDisplay();
-}
-
-// Update tampilan statistik
-function updateStatsDisplay() {
-    const statsContainer = document.querySelector('.stats-container');
-    if (statsContainer && statsContainer.style.display === 'grid') {
-        // Hitung gesture terbanyak
-        let mostFrequent = Object.entries(stats.gesturesDetected)
-            .sort((a, b) => b[1] - a[1])[0];
-        
-        document.getElementById('totalDetections').textContent = stats.totalDetections;
-        document.getElementById('uniqueGestures').textContent = Object.keys(stats.gesturesDetected).length;
-        document.getElementById('mostFrequent').textContent = mostFrequent ? mostFrequent[0] : '-';
-        document.getElementById('sessionTime').textContent = 
-            Math.floor((Date.now() - stats.startTime) / 1000) + ' detik';
+    // Add to history (batasi frekuensi)
+    if (!lastPrediction || lastPrediction.name !== gesture.name) {
+        const historyItem = {
+            ...gesture,
+            timestamp: new Date().toLocaleTimeString()
+        };
+        detectionHistory.unshift(historyItem);
+        if (detectionHistory.length > 5) detectionHistory.pop(); // Kurangi jadi 5
     }
-}
-
-// Tambah ke history
-function addToHistory(gesture) {
-    const historyItem = {
-        ...gesture,
-        timestamp: new Date().toLocaleTimeString()
-    };
     
-    detectionHistory.unshift(historyItem);
-    if (detectionHistory.length > 10) detectionHistory.pop();
-    
-    updateHistoryDisplay();
+    lastPrediction = gesture;
 }
 
-// Update tampilan history
-function updateHistoryDisplay() {
-    const historyContainer = document.querySelector('.history-container');
-    if (historyContainer && historyContainer.style.display === 'block') {
-        historyContainer.innerHTML = detectionHistory.map(item => `
-            <div class="history-item">
-                <span class="history-emoji">${item.emoji}</span>
-                <div class="history-info">
-                    <strong>${item.name}</strong>
-                    <p>${item.meaning}</p>
-                    <div class="history-time">${item.timestamp}</div>
-                </div>
-                <span class="confidence-badge">${item.confidence}%</span>
-            </div>
-        `).join('');
-    }
-}
-
-// Main detection loop
+// OPTIMASI 10: Detection loop yang dioptimasi
 async function detectHands() {
     if (!model) return;
     
-    const predictions = await model.estimateHands(video);
+    // Skip frame untuk performa
+    frameCounter++;
+    if (frameCounter % FRAME_SKIP !== 0) {
+        requestAnimationFrame(detectHands);
+        return;
+    }
     
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    if (predictions.length > 0) {
-        predictions.forEach(prediction => {
+    try {
+        // OPTIMASI 11: Estimate dengan konfigurasi cepat
+        const predictions = await model.estimateHands(video, false); // flipHorizontal = false untuk kecepatan
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        if (predictions.length > 0) {
+            // OPTIMASI 12: Proses hanya 1 tangan pertama
+            const prediction = predictions[0];
             drawHand(prediction.landmarks);
             
             const gesture = detectGesture(prediction.landmarks);
             updateDetectionResult(gesture);
-        });
-    } else {
-        updateDetectionResult(null);
+        } else {
+            updateDetectionResult(null);
+        }
+    } catch (error) {
+        console.error('Detection error:', error);
     }
     
     requestAnimationFrame(detectHands);
@@ -366,16 +331,13 @@ async function init() {
     detectHands();
 }
 
-// Function untuk screenshot
+// Fungsi screenshot yang lebih ringan
 function takeScreenshot() {
-    const dataUrl = canvas.toDataURL('image/png');
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8); // Kompresi JPEG
     const link = document.createElement('a');
-    link.download = `hand-gesture-${Date.now()}.png`;
+    link.download = `hand-gesture-${Date.now()}.jpg`;
     link.href = dataUrl;
     link.click();
-    
-    // Tampilkan notifikasi
-    alert('📸 Screenshot disimpan!');
 }
 
 // Reset detection
@@ -387,155 +349,33 @@ function resetDetection() {
     };
     detectionHistory = [];
     updateDetectionResult(null);
-    updateStatsDisplay();
-    updateHistoryDisplay();
 }
 
-// Switch tab
+// OPTIMASI 13: Switch tab yang efisien
 function switchTab(tabName) {
-    // Update nav items
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.classList.remove('active');
-    });
-    event.currentTarget.classList.add('active');
-    
-    // Hide all tab contents
-    document.querySelector('.camera-card').style.display = 'block';
-    document.querySelector('.guide-section').style.display = 'block';
-    
-    // Show selected tab content (untuk pengembangan lebih lanjut)
-    if (tabName === 'stats') {
-        // Tampilkan stats
-    } else if (tabName === 'history') {
-        // Tampilkan history
-    } else if (tabName === 'info') {
-        // Tampilkan info
-    }
-}
-
-// Show gesture detail
-function showGestureDetail(gesture) {
-    const modal = document.getElementById('gestureModal');
-    const modalTitle = document.getElementById('modalTitle');
-    const modalBody = document.getElementById('modalBody');
-    
-    const details = {
-        openpalm: {
-            title: 'Open Palm ✋',
-            desc: 'Telapak tangan terbuka dengan semua jari lurus',
-            meaning: 'Halo / Hai',
-            tips: 'Pastikan semua jari terlihat jelas dan terbuka lebar'
-        },
-        peace: {
-            title: 'Peace Sign ✌️',
-            desc: 'Jari telunjuk dan tengah lurus membentuk huruf V',
-            meaning: 'Damai / Victory',
-            tips: 'Jari manis dan kelingking harus menekuk'
-        },
-        thumbsup: {
-            title: 'Thumbs Up 👍',
-            desc: 'Ibu jari lurus ke atas, jari lainnya mengepal',
-            meaning: 'Baik / Sip',
-            tips: 'Pastikan ibu jari terlihat jelas di samping'
-        },
-        pointing: {
-            title: 'Pointing ☝️',
-            desc: 'Hanya jari telunjuk yang lurus',
-            meaning: 'Satu / Tunjuk',
-            tips: 'Jari lainnya harus menekuk dengan rapat'
-        },
-        ok: {
-            title: 'OK Sign 👌',
-            desc: 'Ibu jari dan telunjuk membentuk lingkaran',
-            meaning: 'Oke / Setuju',
-            tips: 'Pastikan lingkaran terlihat jelas'
-        },
-        rock: {
-            title: 'Rock On 🤘',
-            desc: 'Jari telunjuk dan kelingking lurus',
-            meaning: 'Keren / Rock',
-            tips: 'Jari tengah dan manis harus menekuk'
-        }
-    };
-    
-    const detail = details[gesture];
-    if (detail) {
-        modalTitle.textContent = detail.title;
-        modalBody.innerHTML = `
-            <p style="margin-bottom: 15px;">${detail.desc}</p>
-            <p style="margin-bottom: 10px;"><strong>Arti:</strong> ${detail.meaning}</p>
-            <p><strong>Tips:</strong> ${detail.tips}</p>
-        `;
-        modal.classList.add('active');
-    }
-}
-
-// Close modal
-function closeModal() {
-    document.getElementById('gestureModal').classList.remove('active');
-}
-
-// Show error
-function showError(message) {
-    const errorDiv = document.createElement('div');
-    errorDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--danger-color);
-        color: white;
-        padding: 15px 25px;
-        border-radius: 50px;
-        z-index: 1000;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-    `;
-    errorDiv.textContent = message;
-    document.body.appendChild(errorDiv);
-    
-    setTimeout(() => {
-        errorDiv.remove();
-    }, 3000);
-}
-
-// Start app
-window.addEventListener('load', init);
-
-// Handle orientation change
-window.addEventListener('orientationchange', () => {
-    setTimeout(() => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-    }, 100);
-});
-
-// SWITCH TAB FUNCTION 
-function switchTab(tabName) {
-    // Update active state di bottom navigation
+    // Update active state
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
     });
     
-    // Cari nav item yang diklik dan beri class active
     const activeNav = Array.from(document.querySelectorAll('.nav-item')).find(
         item => item.querySelector('.nav-label').textContent.toLowerCase() === tabName
     );
-    if (activeNav) {
-        activeNav.classList.add('active');
-    }
+    if (activeNav) activeNav.classList.add('active');
     
-    // Sembunyikan semua konten
+    // Hide all
     document.querySelector('.camera-card').style.display = 'none';
     document.querySelector('.guide-section').style.display = 'none';
     
-    // Hapus semua container tab yang mungkin sudah ada
-    const existingContainers = document.querySelectorAll('.stats-container, .history-container, .info-container');
-    existingContainers.forEach(container => container.remove());
+    // Remove existing containers
+    document.querySelectorAll('.stats-container, .history-container, .info-container')
+        .forEach(c => c.remove());
     
-    // Tampilkan konten sesuai tab yang dipilih
+    // Show selected
     switch(tabName) {
         case 'camera':
-            showCameraTab();
+            document.querySelector('.camera-card').style.display = 'block';
+            document.querySelector('.guide-section').style.display = 'block';
             break;
         case 'stats':
             showStatsTab();
@@ -549,322 +389,109 @@ function switchTab(tabName) {
     }
 }
 
-// FUNGSI UNTUK SETIAP TAB
-
-// 1. Tab Camera
-function showCameraTab() {
-    document.querySelector('.camera-card').style.display = 'block';
-    document.querySelector('.guide-section').style.display = 'block';
-    
-    // Hapus container lain jika ada
-    removeOtherContainers();
-}
-
-// 2. Tab Statistik
+// Show stats tab (ringan)
 function showStatsTab() {
-    // Sembunyikan camera dan guide
-    document.querySelector('.camera-card').style.display = 'none';
-    document.querySelector('.guide-section').style.display = 'none';
-    
-    // Buat container stats
     const mainContent = document.querySelector('.main-content');
     const statsContainer = document.createElement('div');
     statsContainer.className = 'stats-container';
-    statsContainer.style.cssText = `
-        display: block;
-        padding: 20px;
-        background: var(--card-bg);
-        border-radius: 24px;
-        border: 1px solid var(--border-color);
-    `;
+    statsContainer.style.cssText = 'display:block; padding:20px; background:var(--card-bg); border-radius:24px;';
     
-    // Hitung statistik
     const totalTime = Math.floor((Date.now() - stats.startTime) / 1000);
     const minutes = Math.floor(totalTime / 60);
     const seconds = totalTime % 60;
     
-    // Cari gesture terbanyak
-    let mostFrequentGesture = 'Belum ada';
-    let mostFrequentCount = 0;
-    for (let [gesture, count] of Object.entries(stats.gesturesDetected)) {
-        if (count > mostFrequentCount) {
-            mostFrequentCount = count;
-            mostFrequentGesture = gesture;
-        }
-    }
-    
-    // Hitung akurasi rata-rata (simulasi)
-    const avgConfidence = stats.totalDetections > 0 ? 85 : 0;
-    
     statsContainer.innerHTML = `
-        <h2 style="margin-bottom: 20px; font-size: 1.5rem;">📊 Statistik Penggunaan</h2>
-        
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px;">
-            <div class="stat-card">
-                <div style="font-size: 2rem; color: var(--primary-color);">${stats.totalDetections}</div>
-                <div style="color: var(--text-secondary);">Total Deteksi</div>
-            </div>
-            <div class="stat-card">
-                <div style="font-size: 2rem; color: var(--success-color);">${Object.keys(stats.gesturesDetected).length}</div>
-                <div style="color: var(--text-secondary);">Gesture Dikenali</div>
-            </div>
-            <div class="stat-card">
-                <div style="font-size: 2rem; color: var(--warning-color);">${minutes}m ${seconds}s</div>
-                <div style="color: var(--text-secondary);">Waktu Penggunaan</div>
-            </div>
-            <div class="stat-card">
-                <div style="font-size: 2rem; color: var(--danger-color);">${avgConfidence}%</div>
-                <div style="color: var(--text-secondary);">Rata-rata Akurasi</div>
-            </div>
+        <h2 style="margin-bottom:15px;">📊 Statistik</h2>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div class="stat-card"><div style="font-size:2rem;">${stats.totalDetections}</div><div>Total</div></div>
+            <div class="stat-card"><div style="font-size:2rem;">${Object.keys(stats.gesturesDetected).length}</div><div>Gesture</div></div>
+            <div class="stat-card"><div style="font-size:2rem;">${minutes}m</div><div>Waktu</div></div>
+            <div class="stat-card"><div style="font-size:2rem;">85%</div><div>Akurasi</div></div>
         </div>
-        
-        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 15px;">
-            <h3 style="margin-bottom: 15px;">📈 Detail per Gesture</h3>
-            ${Object.entries(stats.gesturesDetected).map(([gesture, count]) => `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color);">
-                    <span>${gesture}</span>
-                    <span style="color: var(--primary-color); font-weight: bold;">${count}x</span>
-                </div>
-            `).join('')}
-            ${Object.keys(stats.gesturesDetected).length === 0 ? 
-                '<p style="color: var(--text-secondary); text-align: center;">Belum ada data gesture</p>' : ''}
-        </div>
-        
-        <div style="margin-top: 20px; display: flex; gap: 10px;">
-            <button onclick="resetStats()" style="flex: 1; padding: 12px; background: var(--danger-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
-                🔄 Reset Statistik
-            </button>
-            <button onclick="switchTab('camera')" style="flex: 1; padding: 12px; background: var(--primary-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
-                📷 Kembali ke Kamera
-            </button>
-        </div>
+        <button onclick="switchTab('camera')" style="width:100%; padding:12px; margin-top:15px; background:var(--primary-color); border:none; border-radius:12px; color:white;">
+            Kembali
+        </button>
     `;
     
     mainContent.appendChild(statsContainer);
 }
 
-// 3. Tab History
+// Show history tab (ringan)
 function showHistoryTab() {
-    // Sembunyikan camera dan guide
-    document.querySelector('.camera-card').style.display = 'none';
-    document.querySelector('.guide-section').style.display = 'none';
-    
-    // Buat container history
     const mainContent = document.querySelector('.main-content');
     const historyContainer = document.createElement('div');
     historyContainer.className = 'history-container';
-    historyContainer.style.cssText = `
-        display: block;
-        padding: 20px;
-        background: var(--card-bg);
-        border-radius: 24px;
-        border: 1px solid var(--border-color);
-    `;
+    historyContainer.style.cssText = 'display:block; padding:20px; background:var(--card-bg); border-radius:24px;';
     
-    let historyHTML = `
-        <h2 style="margin-bottom: 20px; font-size: 1.5rem;">📜 Riwayat Deteksi</h2>
-    `;
+    let html = '<h2 style="margin-bottom:15px;">📜 Riwayat</h2>';
     
     if (detectionHistory.length === 0) {
-        historyHTML += `
-            <div style="text-align: center; padding: 40px 20px;">
-                <div style="font-size: 4rem; margin-bottom: 20px;">📭</div>
-                <h3 style="margin-bottom: 10px;">Belum Ada Riwayat</h3>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">Lakukan deteksi gesture untuk melihat riwayat</p>
-                <button onclick="switchTab('camera')" style="padding: 12px 30px; background: var(--primary-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
-                    Mulai Deteksi
-                </button>
-            </div>
-        `;
+        html += '<p style="text-align:center; padding:20px;">Belum ada riwayat</p>';
     } else {
-        historyHTML += `
-            <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-                <span>Total: ${detectionHistory.length} deteksi</span>
-                <button onclick="clearHistory()" style="padding: 8px 15px; background: var(--danger-color); border: none; border-radius: 8px; color: white; cursor: pointer;">
-                    Hapus Semua
-                </button>
-            </div>
-        `;
-        
-        detectionHistory.forEach((item, index) => {
-            historyHTML += `
-                <div style="display: flex; align-items: center; gap: 15px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 12px; margin-bottom: 10px; border: 1px solid var(--border-color);">
-                    <div style="font-size: 2rem;">${item.emoji}</div>
-                    <div style="flex: 1;">
-                        <div style="font-weight: bold;">${item.name}</div>
-                        <div style="font-size: 0.8rem; color: var(--text-secondary);">${item.meaning}</div>
-                        <div style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 5px;">${item.timestamp}</div>
-                    </div>
-                    <div style="background: var(--primary-color); padding: 4px 8px; border-radius: 12px; font-size: 0.7rem;">
-                        ${item.confidence}%
-                    </div>
+        detectionHistory.slice(0, 5).forEach(item => {
+            html += `
+                <div style="display:flex; align-items:center; gap:10px; padding:10px; border-bottom:1px solid var(--border-color);">
+                    <span style="font-size:2rem;">${item.emoji}</span>
+                    <div style="flex:1;">${item.name}<br><small>${item.timestamp}</small></div>
+                    <span class="confidence-badge">${item.confidence}%</span>
                 </div>
             `;
         });
-        
-        historyHTML += `
-            <div style="margin-top: 20px;">
-                <button onclick="switchTab('camera')" style="width: 100%; padding: 12px; background: var(--primary-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
-                    📷 Kembali ke Kamera
-                </button>
-            </div>
-        `;
     }
     
-    historyContainer.innerHTML = historyHTML;
+    html += `<button onclick="switchTab('camera')" style="width:100%; padding:12px; margin-top:15px; background:var(--primary-color); border:none; border-radius:12px; color:white;">Kembali</button>`;
+    
+    historyContainer.innerHTML = html;
     mainContent.appendChild(historyContainer);
 }
 
-// 4. Tab Info
+// Show info tab (ringan)
 function showInfoTab() {
-    // Sembunyikan camera dan guide
-    document.querySelector('.camera-card').style.display = 'none';
-    document.querySelector('.guide-section').style.display = 'none';
-    
-    // Buat container info
     const mainContent = document.querySelector('.main-content');
     const infoContainer = document.createElement('div');
     infoContainer.className = 'info-container';
-    infoContainer.style.cssText = `
-        display: block;
-        padding: 20px;
-        background: var(--card-bg);
-        border-radius: 24px;
-        border: 1px solid var(--border-color);
-    `;
+    infoContainer.style.cssText = 'display:block; padding:20px; background:var(--card-bg); border-radius:24px;';
     
     infoContainer.innerHTML = `
-        <h2 style="margin-bottom: 20px; font-size: 1.5rem;">ℹ️ Informasi Aplikasi</h2>
-        
-        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
-            <h3 style="margin-bottom: 10px; color: var(--primary-color);">🤟 Hand Sign Language</h3>
-            <p style="margin-bottom: 15px; line-height: 1.6;">
-                Aplikasi ini dibuat untuk mendeteksi bahasa isyarat.
-            </p>
-            <p style="margin-bottom: 5px;"><strong>Fitur:</strong></p>
-            <ul style="list-style: none; padding-left: 0;">
-                <li style="margin-bottom: 8px;">✅ Deteksi 6 gesture isyarat</li>
-                <li style="margin-bottom: 8px;">✅ Real-time tracking</li>
-                <li style="margin-bottom: 8px;">✅ Statistik penggunaan</li>
-                <li style="margin-bottom: 8px;">✅ Riwayat deteksi</li>
-                <li style="margin-bottom: 8px;">✅ Screenshot</li>
-                <li style="margin-bottom: 8px;">✅ Responsive design</li>
-            </ul>
+        <h2 style="margin-bottom:15px;">ℹ️ Info</h2>
+        <div style="padding:15px; background:rgba(255,255,255,0.05); border-radius:12px; margin-bottom:15px;">
+            <p><strong>🤟 Hand Sign Language</strong></p>
+            <p style="margin-top:10px;">Aplikasi deteksi bahasa isyarat real-time</p>
         </div>
-        
-        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
-            <h3 style="margin-bottom: 10px; color: var(--success-color);">📋 Cara Penggunaan</h3>
-            <ol style="padding-left: 20px; line-height: 1.8;">
-                <li>Pastikan ruangan cukup terang</li>
-                <li>Posisikan tangan 30-50cm dari kamera</li>
-                <li>Tunjukkan gesture dengan jelas</li>
-                <li>Tunggu deteksi muncul di layar</li>
-                <li>Gunakan screenshot untuk menyimpan hasil</li>
+        <div style="padding:15px; background:rgba(255,255,255,0.05); border-radius:12px; margin-bottom:15px;">
+            <p><strong>📋 Cara Pakai:</strong></p>
+            <ol style="padding-left:20px; margin-top:10px;">
+                <li>Arahkan tangan ke kamera</li>
+                <li>Tunjukkan gesture</li>
+                <li>Lihat hasil deteksi</li>
             </ol>
         </div>
-        
-        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
-            <h3 style="margin-bottom: 10px; color: var(--warning-color);">🎯 Gesture yang Didukung</h3>
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
-                <div style="text-align: center;">✋ Open Palm</div>
-                <div style="text-align: center;">✌️ Peace</div>
-                <div style="text-align: center;">👍 Thumbs Up</div>
-                <div style="text-align: center;">☝️ Pointing</div>
-                <div style="text-align: center;">👌 OK Sign</div>
-                <div style="text-align: center;">🤘 Rock On</div>
-            </div>
-        </div>
-        
-        <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 20px;">
-            <h3 style="margin-bottom: 10px; color: var(--danger-color);">⚙️ Teknologi</h3>
-            <p>TensorFlow.js | Handpose | HTML5 | CSS3 | JavaScript</p>
-            <p style="margin-top: 10px; font-size: 0.8rem; color: var(--text-secondary);">
-                Versi 1.0.0
-            </p>
-        </div>
-        
-        <div style="margin-top: 20px;">
-            <button onclick="switchTab('camera')" style="width: 100%; padding: 12px; background: var(--primary-color); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer;">
-                📷 Kembali ke Kamera
-            </button>
-        </div>
+        <button onclick="switchTab('camera')" style="width:100%; padding:12px; background:var(--primary-color); border:none; border-radius:12px; color:white;">
+            Kembali
+        </button>
     `;
     
     mainContent.appendChild(infoContainer);
 }
 
-// Fungsi bantuan
-function removeOtherContainers() {
-    const containers = document.querySelectorAll('.stats-container, .history-container, .info-container');
-    containers.forEach(container => container.remove());
+// Show error (ringan)
+function showError(message) {
+    const errorDiv = document.createElement('div');
+    errorDiv.style.cssText = 'position:fixed; top:20px; left:50%; transform:translateX(-50%); background:var(--danger-color); color:white; padding:10px 20px; border-radius:50px; z-index:1000;';
+    errorDiv.textContent = message;
+    document.body.appendChild(errorDiv);
+    setTimeout(() => errorDiv.remove(), 2000);
 }
 
-function resetStats() {
-    stats = {
-        totalDetections: 0,
-        gesturesDetected: {},
-        startTime: Date.now()
-    };
-    showStatsTab(); // Refresh tampilan stats
-}
+// Start app
+window.addEventListener('load', init);
 
-function clearHistory() {
-    detectionHistory = [];
-    showHistoryTab(); // Refresh tampilan history
-}
-
-// Perbaiki fungsi updateDetectionResult untuk menyimpan ke history
-function updateDetectionResult(gesture) {
-    const resultContent = document.querySelector('.result-content');
-    const statusIndicators = document.querySelectorAll('.gesture-status');
-    
-    // Reset semua status
-    statusIndicators.forEach(ind => {
-        ind.innerHTML = '⚪';
-        ind.style.color = 'var(--text-secondary)';
-    });
-    
-    if (gesture) {
-        // Update result card
-        resultContent.innerHTML = `
-            <span class="result-emoji">${gesture.emoji}</span>
-            <div class="result-message">
-                <strong>${gesture.name}</strong><br>
-                <small>${gesture.meaning}</small>
-            </div>
-        `;
-        
-        // Update confidence
-        if (confidenceBadge) {
-            confidenceBadge.textContent = `${gesture.confidence}%`;
+// Handle orientation change
+window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+        if (video.videoWidth) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
         }
-        
-        // Update status indicator
-        const statusId = `status-${gesture.name.toLowerCase().replace(' ', '')}`;
-        const statusEl = document.getElementById(statusId);
-        if (statusEl) {
-            statusEl.innerHTML = '🔵';
-            statusEl.style.color = 'var(--primary-color)';
-        }
-        
-        // Update stats
-        updateStats(gesture.name);
-        
-        // Add to history - HANYA JIKA GESTURE BERBEDA DARI SEBELUMNYA
-        if (!lastPrediction || lastPrediction.name !== gesture.name) {
-            addToHistory(gesture);
-        }
-        
-        lastPrediction = gesture;
-    } else {
-        resultContent.innerHTML = `
-            <span class="result-emoji">🫱</span>
-            <span class="result-message">Gesture tidak dikenal</span>
-        `;
-        if (confidenceBadge) {
-            confidenceBadge.textContent = '0%';
-        }
-        lastPrediction = null;
-    }
-}
-
+    }, 100);
+});
